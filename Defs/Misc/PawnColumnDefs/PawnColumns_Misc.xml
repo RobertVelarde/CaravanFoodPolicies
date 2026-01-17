@@ -1,10 +1,26 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Defs>
-  <PawnColumnDef>
-    <defName>CaravanFoodPolicy</defName>
-    <label>caravan food policy</label>
-    <workerClass>PawnColumnWorker_CaravanFoodPolicy</workerClass>
-    <sortable>true</sortable>
-  </PawnColumnDef>
- 
+	<PawnColumnDef>
+		<defName>CurrentFoodPolicy</defName>
+		<workerClass>RimWorld.PawnColumnWorker_CurrentFoodPolicy</workerClass>
+		<label>current food policy</label>
+		<sortable>true</sortable>
+		<headerTip>The food policy currently assigned to this pawn.</headerTip>
+	</PawnColumnDef>
+
+	<PawnColumnDef>
+		<defName>HomeFoodPolicy</defName>
+		<workerClass>RimWorld.PawnColumnWorker_HomeFoodPolicy</workerClass>
+		<label>home food policy</label>
+		<sortable>true</sortable>
+		<headerTip>The food policy this pawn will revert to when arriving at a player home map.</headerTip>
+	</PawnColumnDef>
+
+	<PawnColumnDef>
+		<defName>CaravanFoodPolicy</defName>
+		<workerClass>RimWorld.PawnColumnWorker_CaravanFoodPolicy</workerClass>
+		<label>caravan food policy</label>
+		<sortable>true</sortable>
+		<headerTip>The food policy this pawn will automatically switch to when forming a caravan.</headerTip>
+	</PawnColumnDef>
 </Defs>

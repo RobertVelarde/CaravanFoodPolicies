@@ -71,7 +71,6 @@ namespace CaravanFoodPolicies
                 {
                     if (!pawn.RaceProps.Humanlike) continue;
 
-                    PolicyUtils.SaveHomePolicy(pawn);
                     var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
                     if (caravanPolicy == null)
                     {
@@ -101,7 +100,7 @@ namespace CaravanFoodPolicies
                     if (homePolicy == null)
                     {
                         CFPLog.Missing(pawn);
-                        continue; 
+                        continue;
                     }
 
                     // Update the pawn's food policy
@@ -225,6 +224,10 @@ namespace CaravanFoodPolicies
             var data = Data;
             if (data == null || pawn.foodRestriction?.CurrentFoodPolicy == null) return;
 
+            // NEW: If the user has manually set a Home policy via the UI (it exists in the dictionary),
+            // do NOT overwrite it with the current transient policy.
+            if (data.RetainedHomeData.ContainsKey(pawn.GetUniqueLoadID())) return;
+
             data.RetainedHomeData[pawn.GetUniqueLoadID()] = pawn.foodRestriction.CurrentFoodPolicy.label;
         }
 
@@ -237,6 +240,17 @@ namespace CaravanFoodPolicies
             if (data == null) return;
 
             data.RetainedCaravanData[pawn.GetUniqueLoadID()] = policy.label;
+        }
+
+        /// <summary>
+        /// Updates the saved "Home" preference for a pawn.
+        /// </summary>
+        public static void SetStoredHomePolicy(Pawn pawn, FoodPolicy policy)
+        {
+            var data = Data;
+            if (data == null) return;
+
+            data.RetainedHomeData[pawn.GetUniqueLoadID()] = policy.label;
         }
 
         // Helper to find policy object from string label
@@ -318,6 +332,7 @@ namespace RimWorld
 {
     using CaravanFoodPolicies; // Import our utils
 
+    // 1. Column for editing the "Caravan" Policy (Existing)
     public class PawnColumnWorker_CaravanFoodPolicy : PawnColumnWorker
     {
         private const int TopAreaHeight = 65;
@@ -327,12 +342,6 @@ namespace RimWorld
         {
             base.DoHeader(rect, table);
             MouseoverSounds.DoRegion(rect);
-
-            var buttonRect = new Rect(rect.x, rect.y + (rect.height - TopAreaHeight), Mathf.Min(rect.width, 360f), ManageFoodPoliciesButtonHeight);
-            if (Widgets.ButtonText(buttonRect, "Manage caravan food policies"))
-            {
-                Find.WindowStack.Add(new Dialog_ManageFoodPolicies(null));
-            }
         }
 
         public override void DoCell(Rect rect, Pawn pawn, PawnTable table)
@@ -375,9 +384,143 @@ namespace RimWorld
             };
         }
 
-        // Standard overrides
-        public override int GetMinWidth(PawnTable table) => Mathf.Max(base.GetMinWidth(table), 194);
-        public override int GetOptimalWidth(PawnTable table) => Mathf.Clamp(251, GetMinWidth(table), GetMaxWidth(table));
+        public override int GetMinWidth(PawnTable table) => Mathf.Max(base.GetMinWidth(table), 100);
+        public override int GetOptimalWidth(PawnTable table) => Mathf.Clamp(150, GetMinWidth(table), GetMaxWidth(table));
+        public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
+
+        public override int Compare(Pawn a, Pawn b)
+        {
+            return GetValueToCompare(a).CompareTo(GetValueToCompare(b));
+        }
+
+        private int GetValueToCompare(Pawn pawn)
+        {
+            if (pawn.foodRestriction?.CurrentFoodPolicy == null) return int.MinValue;
+            return PolicyUtils.GetStoredCaravanPolicy(pawn).id;
+        }
+    }
+
+    // 2. Column for editing the "Home" Policy (New)
+    public class PawnColumnWorker_HomeFoodPolicy : PawnColumnWorker
+    {
+        public override void DoCell(Rect rect, Pawn pawn, PawnTable table)
+        {
+            if (pawn.foodRestriction == null) return;
+
+            // Get stored home policy, or fallback to current if never set
+            var storedPolicy = PolicyUtils.GetStoredHomePolicy(pawn);
+            var displayPolicy = storedPolicy ?? pawn.foodRestriction.CurrentFoodPolicy;
+
+            Rect dropdownRect = new Rect(rect.x, rect.y + 2f, rect.width, rect.height - 4f);
+
+            Widgets.Dropdown(
+                dropdownRect,
+                pawn,
+                _ => displayPolicy,
+                Button_GenerateMenu,
+                displayPolicy.label.Truncate(dropdownRect.width),
+                dragLabel: displayPolicy.label,
+                paintable: true
+            );
+        }
+
+        private IEnumerable<Widgets.DropdownMenuElement<FoodPolicy>> Button_GenerateMenu(Pawn pawn)
+        {
+            foreach (var policy in Current.Game.foodRestrictionDatabase.AllFoodRestrictions)
+            {
+                yield return new Widgets.DropdownMenuElement<FoodPolicy>()
+                {
+                    option = new FloatMenuOption(policy.label, () => PolicyUtils.SetStoredHomePolicy(pawn, policy)),
+                    payload = policy
+                };
+            }
+
+            yield return new Widgets.DropdownMenuElement<FoodPolicy>()
+            {
+                option = new FloatMenuOption("Edit...", () =>
+                {
+                    Find.WindowStack.Add(new Dialog_ManageFoodPolicies(null));
+                }),
+                payload = null
+            };
+        }
+
+        public override int GetMinWidth(PawnTable table) => Mathf.Max(base.GetMinWidth(table), 100);
+        public override int GetOptimalWidth(PawnTable table) => Mathf.Clamp(150, GetMinWidth(table), GetMaxWidth(table));
+
+        public override int Compare(Pawn a, Pawn b)
+        {
+            return GetValueToCompare(a).CompareTo(GetValueToCompare(b));
+        }
+
+        private int GetValueToCompare(Pawn pawn)
+        {
+            if (pawn.foodRestriction?.CurrentFoodPolicy == null) return int.MinValue;
+            var policy = PolicyUtils.GetStoredHomePolicy(pawn) ?? pawn.foodRestriction.CurrentFoodPolicy;
+            return policy.id;
+        }
+    }
+
+    // 3. Column for "Current" Food Policy (Rename of Vanilla)
+    public class PawnColumnWorker_CurrentFoodPolicy : PawnColumnWorker
+    {
+        private const int TopAreaHeight = 65;
+        private const int ManageFoodPoliciesButtonHeight = 32;
+
+        public override void DoHeader(Rect rect, PawnTable table)
+        {
+            base.DoHeader(rect, table);
+            MouseoverSounds.DoRegion(rect);
+
+            var buttonRect = new Rect(rect.x, rect.y + (rect.height - TopAreaHeight), rect.width * 3f, ManageFoodPoliciesButtonHeight);
+            if (Widgets.ButtonText(buttonRect, "Manage food policies"))
+            {
+                Find.WindowStack.Add(new Dialog_ManageFoodPolicies(null));
+            }
+        }
+
+        public override void DoCell(Rect rect, Pawn pawn, PawnTable table)
+        {
+            if (pawn.foodRestriction == null) return;
+
+            var currentPolicy = pawn.foodRestriction.CurrentFoodPolicy;
+            Rect dropdownRect = new Rect(rect.x, rect.y + 2f, rect.width, rect.height - 4f);
+
+            Widgets.Dropdown(
+                dropdownRect,
+                pawn,
+                _ => currentPolicy,
+                Button_GenerateMenu,
+                currentPolicy.label.Truncate(dropdownRect.width),
+                dragLabel: currentPolicy.label,
+                paintable: true
+            );
+        }
+
+        private IEnumerable<Widgets.DropdownMenuElement<FoodPolicy>> Button_GenerateMenu(Pawn pawn)
+        {
+            foreach (var policy in Current.Game.foodRestrictionDatabase.AllFoodRestrictions)
+            {
+                yield return new Widgets.DropdownMenuElement<FoodPolicy>()
+                {
+                    option = new FloatMenuOption(policy.label, () => pawn.foodRestriction.CurrentFoodPolicy = policy),
+                    payload = policy
+                };
+            }
+
+            yield return new Widgets.DropdownMenuElement<FoodPolicy>()
+            {
+                option = new FloatMenuOption("Edit...", () =>
+                {
+                    Find.WindowStack.Add(new Dialog_ManageFoodPolicies(null));
+                }),
+                payload = null
+            };
+        }
+
+        public override int GetMinWidth(PawnTable table) => Mathf.Max(base.GetMinWidth(table), 100);
+        public override int GetOptimalWidth(PawnTable table) => Mathf.Clamp(150, GetMinWidth(table), GetMaxWidth(table));
+
         public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
 
         public override int Compare(Pawn a, Pawn b)
