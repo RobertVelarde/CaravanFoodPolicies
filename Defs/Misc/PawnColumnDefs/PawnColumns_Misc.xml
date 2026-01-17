@@ -1,18 +1,10 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Defs>
-<!--  Original FoodRestriction Def-->
-<!--  <PawnColumnDef>-->
-<!--    <defName>FoodRestriction</defName>-->
-<!--    <label>food restriction</label>-->
-<!--    <workerClass>PawnColumnWorker_FoodRestriction</workerClass>-->
-<!--    <sortable>true</sortable>-->
-<!--  </PawnColumnDef>-->
-
   <PawnColumnDef>
-    <defName>CaravanFoodRestriction</defName>
-    <label>caravan food restriction</label>
-    <workerClass>PawnColumnWorker_CaravanFoodRestriction</workerClass>
+    <defName>CaravanFoodPolicy</defName>
+    <label>caravan food policy</label>
+    <workerClass>PawnColumnWorker_CaravanFoodPolicy</workerClass>
     <sortable>true</sortable>
   </PawnColumnDef>
-  
+ 
 </Defs>
