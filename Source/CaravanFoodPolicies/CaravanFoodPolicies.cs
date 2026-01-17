@@ -117,17 +117,20 @@ namespace CaravanFoodPolicies
 
         public static void Missing(Pawn pawn)
         {
-            Warning("Could not update food policy for '" + pawn.NameShortColored + "'. Their current food policy is '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.");
+            Warning("Could not update food policy for '" + pawn.NameShortColored + "'. Their current food policy is '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.")
+;
         }
 
         public static void Departure(Pawn pawn)
         {
-            Message("'" + pawn.NameShortColored + "' departed in a caravan. Their food policy has been updated to '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.");
+            Message("'" + pawn.NameShortColored + "' departed in a caravan. Their food policy has been updated to '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.")
+;
         }
 
         public static void Arrival(Pawn pawn)
         {
-            Message("'" + pawn.NameShortColored + "' returned home. Their food policy has been reset back to '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.");
+            Message("'" + pawn.NameShortColored + "' returned home. Their food policy has been reset back to '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.")
+;
         }
 
         public static void Message(string message)
@@ -202,18 +205,23 @@ namespace CaravanFoodPolicies
         }
 
         /// <summary>
-        /// Gets the stored Home policy for a pawn. Returns null if not found.
+        /// Gets the stored Home policy for a pawn. 
+        /// Initializes to Current policy if not found.
         /// </summary>
         public static FoodPolicy GetStoredHomePolicy(Pawn pawn)
         {
             var data = Data;
-            if (data == null) return null;
+            if (data == null) return DefaultPolicy;
 
             if (data.RetainedHomeData.TryGetValue(pawn.GetUniqueLoadID(), out var label))
             {
-                return GetPolicyByLabel(label);
+                return GetPolicyByLabel(label) ?? DefaultPolicy;
             }
-            return null;
+
+            // Initialization: Save current policy as Home policy
+            var current = pawn.foodRestriction?.CurrentFoodPolicy ?? DefaultPolicy;
+            data.RetainedHomeData[pawn.GetUniqueLoadID()] = current.label;
+            return current;
         }
 
         /// <summary>
@@ -309,8 +317,8 @@ namespace CaravanFoodPolicies
 
     public class CaravanFoodPoliciesData : WorldComponent
     {
-        public Dictionary<string, string> RetainedCaravanData = new Dictionary<string, string>();
-        public Dictionary<string, string> RetainedHomeData = new Dictionary<string, string>();
+        public Dictionary<string, string> RetainedCaravanData = new Dictionary<string, String>();
+        public Dictionary<string, string> RetainedHomeData = new Dictionary<string, String>();
 
         // Lists for Scribe saving
         private List<string> CaravanPawnId;
@@ -332,11 +340,11 @@ namespace RimWorld
 {
     using CaravanFoodPolicies; // Import our utils
 
-    // 1. Column for editing the "Caravan" Policy (Existing)
-    public class PawnColumnWorker_CaravanFoodPolicy : PawnColumnWorker
+    // Base class for shared logic
+    public abstract class PawnColumnWorker_FoodPolicyBase : PawnColumnWorker
     {
-        private const int TopAreaHeight = 65;
-        public const int ManageFoodPoliciesButtonHeight = 32;
+        protected const int TopAreaHeight = 65;
+        protected const int ManageFoodPoliciesButtonHeight = 32;
 
         public override void DoHeader(Rect rect, PawnTable table)
         {
@@ -348,32 +356,85 @@ namespace RimWorld
         {
             if (pawn.foodRestriction == null) return;
 
-            var currentSavedPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
+            var policy = GetPolicy(pawn);
             Rect dropdownRect = new Rect(rect.x, rect.y + 2f, rect.width, rect.height - 4f);
 
-            Widgets.Dropdown(
-                dropdownRect,
-                pawn,
-                _ => currentSavedPolicy,
-                Button_GenerateMenu,
-                currentSavedPolicy.label.Truncate(dropdownRect.width),
-                dragLabel: currentSavedPolicy.label,
-                paintable: true
-            );
+            // Highlight if there is a mismatch
+            if (HasMismatch(pawn))
+            {
+                GUI.color = new Color(1f, 0.6f, 0.6f); // Red tint
+
+                // Handle right-click to fix mismatch
+                if (Mouse.IsOver(rect) && Event.current.type == EventType.MouseDown && Event.current.button == 1)
+                {
+                    ResolveMismatch(pawn);
+                    SoundDefOf.Click.PlayOneShotOnCamera();
+                    Event.current.Use();
+                }
+            }
+            else if (HasMatch(pawn))
+            {
+                GUI.color = new Color(0.6f, 1f, 0.6f); // Green tint
+            }
+
+                Widgets.Dropdown(
+                    dropdownRect,
+                    pawn,
+                    _ => policy,
+                    Button_GenerateMenu,
+                    policy.label.Truncate(dropdownRect.width),
+                    dragLabel: policy.label,
+                    paintable: true
+                );
+
+            GUI.color = Color.white; // Reset
         }
 
-        private IEnumerable<Widgets.DropdownMenuElement<FoodPolicy>> Button_GenerateMenu(Pawn pawn)
+        protected abstract FoodPolicy GetPolicy(Pawn pawn);
+        protected abstract void SetPolicy(Pawn pawn, FoodPolicy policy);
+        protected virtual bool HasMatch(Pawn pawn) => false;
+        protected virtual bool HasMismatch(Pawn pawn) => false;
+        protected abstract void ResolveMismatch(Pawn pawn);
+
+
+        // Helpers for mismatch logic
+        protected bool IsHomeMismatch(Pawn pawn)
+        {
+            var homePolicy = PolicyUtils.GetStoredHomePolicy(pawn);
+            // If homePolicy is null, no custom home policy is set, so no mismatch.
+            return homePolicy != null && (pawn.Map?.IsPlayerHome == true) && pawn.foodRestriction.CurrentFoodPolicy != homePolicy;
+        }
+
+        protected bool IsHomeMatch(Pawn pawn)
+        {
+            var homePolicy = PolicyUtils.GetStoredHomePolicy(pawn);
+            // If homePolicy is null, no custom home policy is set, so no mismatch.
+            return homePolicy != null && (pawn.Map?.IsPlayerHome == true) && pawn.foodRestriction.CurrentFoodPolicy == homePolicy;
+        }
+
+        protected bool IsCaravanMismatch(Pawn pawn)
+        {
+            var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
+            return pawn.IsCaravanMember() && pawn.foodRestriction.CurrentFoodPolicy != caravanPolicy;
+        }
+
+        protected bool IsCaravanMatch(Pawn pawn)
+        {
+            var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
+            return pawn.IsCaravanMember() && pawn.foodRestriction.CurrentFoodPolicy == caravanPolicy;
+        }
+
+        protected virtual IEnumerable<Widgets.DropdownMenuElement<FoodPolicy>> Button_GenerateMenu(Pawn pawn)
         {
             foreach (var policy in Current.Game.foodRestrictionDatabase.AllFoodRestrictions)
             {
                 yield return new Widgets.DropdownMenuElement<FoodPolicy>()
                 {
-                    option = new FloatMenuOption(policy.label, () => PolicyUtils.SetStoredCaravanPolicy(pawn, policy)),
+                    option = new FloatMenuOption(policy.label, () => SetPolicy(pawn, policy)),
                     payload = policy
                 };
             }
 
-            // Add the "Edit..." option at the very bottom
             yield return new Widgets.DropdownMenuElement<FoodPolicy>()
             {
                 option = new FloatMenuOption("Edit...", () =>
@@ -386,92 +447,82 @@ namespace RimWorld
 
         public override int GetMinWidth(PawnTable table) => Mathf.Max(base.GetMinWidth(table), 100);
         public override int GetOptimalWidth(PawnTable table) => Mathf.Clamp(150, GetMinWidth(table), GetMaxWidth(table));
-        public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
 
         public override int Compare(Pawn a, Pawn b)
         {
             return GetValueToCompare(a).CompareTo(GetValueToCompare(b));
         }
 
-        private int GetValueToCompare(Pawn pawn)
+        protected virtual int GetValueToCompare(Pawn pawn)
         {
             if (pawn.foodRestriction?.CurrentFoodPolicy == null) return int.MinValue;
-            return PolicyUtils.GetStoredCaravanPolicy(pawn).id;
+            return GetPolicy(pawn).id;
+        }
+    }
+
+    // 1. Column for editing the "Caravan" Policy (Existing)
+    public class PawnColumnWorker_CaravanFoodPolicy : PawnColumnWorker_FoodPolicyBase
+    {
+        protected override FoodPolicy GetPolicy(Pawn pawn) => PolicyUtils.GetStoredCaravanPolicy(pawn);
+        protected override void SetPolicy(Pawn pawn, FoodPolicy policy) => PolicyUtils.SetStoredCaravanPolicy(pawn, policy);
+
+        public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
+
+        protected override bool HasMatch(Pawn pawn)
+        {
+            return IsCaravanMatch(pawn);
+        }
+
+        protected override bool HasMismatch(Pawn pawn)
+        {
+            return IsCaravanMismatch(pawn);
+        }
+
+        protected override void ResolveMismatch(Pawn pawn)
+        {
+            // Set Current to the Caravan policy
+            pawn.foodRestriction.CurrentFoodPolicy = GetPolicy(pawn);
         }
     }
 
     // 2. Column for editing the "Home" Policy (New)
-    public class PawnColumnWorker_HomeFoodPolicy : PawnColumnWorker
+    public class PawnColumnWorker_HomeFoodPolicy : PawnColumnWorker_FoodPolicyBase
     {
-        public override void DoCell(Rect rect, Pawn pawn, PawnTable table)
+        // NOTE: Keeping the fallback removal from previous steps implicitly if user applied it, 
+        // but adhering to context provided in prompt which included the fallback logic. 
+        // ResolveMismatch uses GetPolicy which uses GetStoredHomePolicy. 
+        protected override FoodPolicy GetPolicy(Pawn pawn) => PolicyUtils.GetStoredHomePolicy(pawn) ?? pawn.foodRestriction.CurrentFoodPolicy;
+        protected override void SetPolicy(Pawn pawn, FoodPolicy policy) => PolicyUtils.SetStoredHomePolicy(pawn, policy);
+
+        protected override bool HasMatch(Pawn pawn)
         {
-            if (pawn.foodRestriction == null) return;
-
-            // Get stored home policy, or fallback to current if never set
-            var storedPolicy = PolicyUtils.GetStoredHomePolicy(pawn);
-            var displayPolicy = storedPolicy ?? pawn.foodRestriction.CurrentFoodPolicy;
-
-            Rect dropdownRect = new Rect(rect.x, rect.y + 2f, rect.width, rect.height - 4f);
-
-            Widgets.Dropdown(
-                dropdownRect,
-                pawn,
-                _ => displayPolicy,
-                Button_GenerateMenu,
-                displayPolicy.label.Truncate(dropdownRect.width),
-                dragLabel: displayPolicy.label,
-                paintable: true
-            );
+            return IsHomeMatch(pawn);
         }
 
-        private IEnumerable<Widgets.DropdownMenuElement<FoodPolicy>> Button_GenerateMenu(Pawn pawn)
+        protected override bool HasMismatch(Pawn pawn)
         {
-            foreach (var policy in Current.Game.foodRestrictionDatabase.AllFoodRestrictions)
-            {
-                yield return new Widgets.DropdownMenuElement<FoodPolicy>()
-                {
-                    option = new FloatMenuOption(policy.label, () => PolicyUtils.SetStoredHomePolicy(pawn, policy)),
-                    payload = policy
-                };
-            }
-
-            yield return new Widgets.DropdownMenuElement<FoodPolicy>()
-            {
-                option = new FloatMenuOption("Edit...", () =>
-                {
-                    Find.WindowStack.Add(new Dialog_ManageFoodPolicies(null));
-                }),
-                payload = null
-            };
+            return IsHomeMismatch(pawn);
         }
 
-        public override int GetMinWidth(PawnTable table) => Mathf.Max(base.GetMinWidth(table), 100);
-        public override int GetOptimalWidth(PawnTable table) => Mathf.Clamp(150, GetMinWidth(table), GetMaxWidth(table));
-
-        public override int Compare(Pawn a, Pawn b)
+        protected override void ResolveMismatch(Pawn pawn)
         {
-            return GetValueToCompare(a).CompareTo(GetValueToCompare(b));
-        }
-
-        private int GetValueToCompare(Pawn pawn)
-        {
-            if (pawn.foodRestriction?.CurrentFoodPolicy == null) return int.MinValue;
-            var policy = PolicyUtils.GetStoredHomePolicy(pawn) ?? pawn.foodRestriction.CurrentFoodPolicy;
-            return policy.id;
+            // Set Current to the Home policy
+            pawn.foodRestriction.CurrentFoodPolicy = GetPolicy(pawn);
         }
     }
 
     // 3. Column for "Current" Food Policy (Rename of Vanilla)
-    public class PawnColumnWorker_CurrentFoodPolicy : PawnColumnWorker
+    public class PawnColumnWorker_CurrentFoodPolicy : PawnColumnWorker_FoodPolicyBase
     {
-        private const int TopAreaHeight = 65;
-        private const int ManageFoodPoliciesButtonHeight = 32;
+        protected override FoodPolicy GetPolicy(Pawn pawn) => pawn.foodRestriction.CurrentFoodPolicy;
+        protected override void SetPolicy(Pawn pawn, FoodPolicy policy) => pawn.foodRestriction.CurrentFoodPolicy = policy;
+
+        public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
 
         public override void DoHeader(Rect rect, PawnTable table)
         {
             base.DoHeader(rect, table);
-            MouseoverSounds.DoRegion(rect);
-
+            
             var buttonRect = new Rect(rect.x, rect.y + (rect.height - TopAreaHeight), rect.width * 3f, ManageFoodPoliciesButtonHeight);
             if (Widgets.ButtonText(buttonRect, "Manage food policies"))
             {
@@ -479,59 +530,43 @@ namespace RimWorld
             }
         }
 
-        public override void DoCell(Rect rect, Pawn pawn, PawnTable table)
+        protected override bool HasMatch(Pawn pawn)
         {
-            if (pawn.foodRestriction == null) return;
-
-            var currentPolicy = pawn.foodRestriction.CurrentFoodPolicy;
-            Rect dropdownRect = new Rect(rect.x, rect.y + 2f, rect.width, rect.height - 4f);
-
-            Widgets.Dropdown(
-                dropdownRect,
-                pawn,
-                _ => currentPolicy,
-                Button_GenerateMenu,
-                currentPolicy.label.Truncate(dropdownRect.width),
-                dragLabel: currentPolicy.label,
-                paintable: true
-            );
-        }
-
-        private IEnumerable<Widgets.DropdownMenuElement<FoodPolicy>> Button_GenerateMenu(Pawn pawn)
-        {
-            foreach (var policy in Current.Game.foodRestrictionDatabase.AllFoodRestrictions)
+            if (pawn.Map != null && pawn.Map.IsPlayerHome)
             {
-                yield return new Widgets.DropdownMenuElement<FoodPolicy>()
-                {
-                    option = new FloatMenuOption(policy.label, () => pawn.foodRestriction.CurrentFoodPolicy = policy),
-                    payload = policy
-                };
+                return IsHomeMatch(pawn);
             }
-
-            yield return new Widgets.DropdownMenuElement<FoodPolicy>()
+            if (pawn.IsCaravanMember())
             {
-                option = new FloatMenuOption("Edit...", () =>
-                {
-                    Find.WindowStack.Add(new Dialog_ManageFoodPolicies(null));
-                }),
-                payload = null
-            };
+                return IsCaravanMatch(pawn);
+            }
+            return false;
         }
 
-        public override int GetMinWidth(PawnTable table) => Mathf.Max(base.GetMinWidth(table), 100);
-        public override int GetOptimalWidth(PawnTable table) => Mathf.Clamp(150, GetMinWidth(table), GetMaxWidth(table));
-
-        public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
-
-        public override int Compare(Pawn a, Pawn b)
+        protected override bool HasMismatch(Pawn pawn)
         {
-            return GetValueToCompare(a).CompareTo(GetValueToCompare(b));
+            if (pawn.Map != null && pawn.Map.IsPlayerHome)
+            {
+                return IsHomeMismatch(pawn);
+            }
+            if (pawn.IsCaravanMember())
+            {
+                return IsCaravanMismatch(pawn);
+            }
+            return false;
         }
 
-        private int GetValueToCompare(Pawn pawn)
+        protected override void ResolveMismatch(Pawn pawn)
         {
-            if (pawn.foodRestriction?.CurrentFoodPolicy == null) return int.MinValue;
-            return PolicyUtils.GetStoredCaravanPolicy(pawn).id;
+            // Push Current policy to the mismatched stored policy
+            if (IsHomeMismatch(pawn))
+            {
+                PolicyUtils.SetStoredHomePolicy(pawn, pawn.foodRestriction.CurrentFoodPolicy);
+            }
+            else if (IsCaravanMismatch(pawn))
+            {
+                PolicyUtils.SetStoredCaravanPolicy(pawn, pawn.foodRestriction.CurrentFoodPolicy);
+            }
         }
     }
 }

@@ -16,14 +16,14 @@
 			<downloadUrl>https://github.com/pardeike/HarmonyRimWorld/releases/latest</downloadUrl>
 		</li>
 	</modDependencies>
-	<description>
-Adds the ability to set caravan food policies for pawns. Pawns will automatically switch to their caravan food policy when leaving on a caravan and revert back to their original food policy when returning.
+	<description>Adds the ability to a pawns current food policy, home food policy, and caravan food policy. Pawns will automatically switch to their caravan food policy when leaving on a caravan and switch to their home food policy when returning. Food policies can be easily managed in the &lt;i&gt;Assign&lt;/i&gt; menu.
 
 Features:
-- Manage caravan food policies in the &lt;i&gt;Assign&lt;/i&gt; menu. 
-- Existing food policies can be used as caravan food policies.
-- Pawns will automatically have their food policy set to their caravan food policy immediately after departing home on a caravan.
-- Pawns will automatically have their food policy reverted back to its original value immediately after arriving  home.
-- When forming a caravan and &lt;i&gt;automatically select travel supplies&lt;/i&gt; is checked, food will be selected based on the caravan food policies of the pawns in the caravan.
+ - Manage food policies in the &lt;i&gt;Assign&lt;/i&gt; menu.
+ - Existing food policies can be used seamlessly.
+ - Pawns will automatically have their food policy set to their caravan food policy immediately after departing on a caravan.
+ - Pawns will automatically have their food policy set to their home food policy immediately after arriving home.
+ - When forming a caravan and &lt;i&gt;automatically select travel supplies&lt;/i&gt; is checked, food will be selected based on the caravan food policies of the pawns in the caravan.
+ - When forming a caravan, the &lt;i&gt;days of food&lt;/i&gt; calculation accounts for the caravan food policies of the pawns in the caravan.
 	</description>
 </ModMetaData>

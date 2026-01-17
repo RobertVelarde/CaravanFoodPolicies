@@ -39,7 +39,6 @@
         <xpath>/Defs/PawnTableDef[defName="Assign"]/columns/li[text()="CurrentFoodPolicy"]</xpath>
         <order>Append</order>
         <value>
-			<li>GapTiny</li>
 			<li>CaravanFoodPolicy</li>
 			<li>HomeFoodPolicy</li>
 		</value>
