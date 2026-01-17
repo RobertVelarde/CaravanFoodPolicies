@@ -1,6 +1,7 @@
 ﻿using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Verse;
@@ -13,7 +14,7 @@ namespace CaravanFoodPolicies
     {
         static CaravanFoodPolicies()
         {
-            Log.Message("CaravanFoodPolicies StartUp");
+            CFPLog.Message("StartUp");
             var harmony = new Harmony("Aeroux.CaravanFoodPolicies");
             harmony.PatchAll();
         }
@@ -23,6 +24,7 @@ namespace CaravanFoodPolicies
         [HarmonyPatch(typeof(Dialog_FormCaravan), "DaysWorthOfFood", MethodType.Getter)]
         static class Dialog_FormCaravan_DaysWorthOfFood_Patch
         {
+            [HarmonyBefore(new string[] { "SmashPhil.VehicleFramework" })]
             static void Prefix(List<TransferableOneWay> ___transferables, bool ___daysWorthOfFoodDirty, out Dictionary<Pawn, FoodPolicy> __state)
             {
                 __state = null;
@@ -46,6 +48,7 @@ namespace CaravanFoodPolicies
         [HarmonyPatch(typeof(Dialog_FormCaravan), "SelectApproximateBestTravelSupplies")]
         static class Dialog_FormCaravan_SelectApproximateBestTravelSupplies_Patch
         {
+            [HarmonyBefore(new string[] { "SmashPhil.VehicleFramework" })]
             static void Prefix(List<TransferableOneWay> ___transferables, out Dictionary<Pawn, FoodPolicy> __state)
             {
                 __state = PolicyUtils.ApplyCaravanPolicies(___transferables);
@@ -70,7 +73,15 @@ namespace CaravanFoodPolicies
 
                     PolicyUtils.SaveHomePolicy(pawn);
                     var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
+                    if (caravanPolicy == null)
+                    {
+                        CFPLog.Missing(pawn);
+                        continue;
+                    }
+
+                    // Update the pawn's food policy
                     pawn.foodRestriction.CurrentFoodPolicy = caravanPolicy;
+                    CFPLog.Departure(pawn);
                 }
             }
         }
@@ -87,12 +98,81 @@ namespace CaravanFoodPolicies
                     if (!pawn.RaceProps.Humanlike) continue;
 
                     var homePolicy = PolicyUtils.GetStoredHomePolicy(pawn);
-                    if (homePolicy != null)
+                    if (homePolicy == null)
                     {
-                        pawn.foodRestriction.CurrentFoodPolicy = homePolicy;
+                        CFPLog.Missing(pawn);
+                        continue; 
                     }
+
+                    // Update the pawn's food policy
+                    pawn.foodRestriction.CurrentFoodPolicy = homePolicy;
+                    CFPLog.Arrival(pawn);
                 }
             }
+        }
+    }
+
+    internal static class CFPLog
+    {
+        private const string Prefix = "[CaravanFoodPolicies]";
+
+        public static void Missing(Pawn pawn)
+        {
+            Warning("Could not update food policy for '" + pawn.NameShortColored + "'. Their current food policy is '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.");
+        }
+
+        public static void Departure(Pawn pawn)
+        {
+            Message("'" + pawn.NameShortColored + "' departed in a caravan. Their food policy has been updated to '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.");
+        }
+
+        public static void Arrival(Pawn pawn)
+        {
+            Message("'" + pawn.NameShortColored + "' returned home. Their food policy has been reset back to '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.");
+        }
+
+        public static void Message(string message)
+        {
+            Log.Message(Format(message));
+        }
+
+        public static void Warning(string message)
+        {
+            Log.Warning(Format(message));
+        }
+
+        public static void Error(string message)
+        {
+            Log.Error(Format(message));
+        }
+
+        public static void ErrorOnce(string message, int key)
+        {
+            Log.ErrorOnce(Format(message), key);
+        }
+
+        public static void Exception(Exception exception, string contextMessage = null)
+        {
+            if (exception == null)
+            {
+                Warning("Exception(null) called.");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(contextMessage))
+            {
+                Log.Error(Format(exception.ToString()));
+            }
+            else
+            {
+                Log.Error(Format(contextMessage + Environment.NewLine + exception));
+            }
+        }
+
+        private static string Format(string message)
+        {
+            if (string.IsNullOrEmpty(message)) return Prefix;
+            return $"{Prefix} {message}";
         }
     }
 
