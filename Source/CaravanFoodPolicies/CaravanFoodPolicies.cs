@@ -195,9 +195,9 @@ namespace CaravanFoodPolicies
             if (data == null) return DefaultPolicy;
 
             // If we have a specific saved label, try to find it
-            if (data.RetainedCaravanData.TryGetValue(pawn.GetUniqueLoadID(), out var label))
+            if (data.RetainedCaravanDataIds.TryGetValue(pawn.GetUniqueLoadID(), out var id))
             {
-                return GetPolicyByLabel(label) ?? DefaultPolicy;
+                return GetPolicyById(id) ?? DefaultPolicy;
             }
 
             // Fallback: Pawn has never been touched by this mod, return Default
@@ -213,14 +213,14 @@ namespace CaravanFoodPolicies
             var data = Data;
             if (data == null) return DefaultPolicy;
 
-            if (data.RetainedHomeData.TryGetValue(pawn.GetUniqueLoadID(), out var label))
+            if (data.RetainedHomeDataIds.TryGetValue(pawn.GetUniqueLoadID(), out var id))
             {
-                return GetPolicyByLabel(label) ?? DefaultPolicy;
+                return GetPolicyById(id) ?? DefaultPolicy;
             }
 
             // Initialization: Save current policy as Home policy
             var current = pawn.foodRestriction?.CurrentFoodPolicy ?? DefaultPolicy;
-            data.RetainedHomeData[pawn.GetUniqueLoadID()] = current.label;
+            data.RetainedHomeDataIds[pawn.GetUniqueLoadID()] = current.id;
             return current;
         }
 
@@ -234,9 +234,9 @@ namespace CaravanFoodPolicies
 
             // NEW: If the user has manually set a Home policy via the UI (it exists in the dictionary),
             // do NOT overwrite it with the current transient policy.
-            if (data.RetainedHomeData.ContainsKey(pawn.GetUniqueLoadID())) return;
+            if (data.RetainedHomeDataIds.ContainsKey(pawn.GetUniqueLoadID())) return;
 
-            data.RetainedHomeData[pawn.GetUniqueLoadID()] = pawn.foodRestriction.CurrentFoodPolicy.label;
+            data.RetainedHomeDataIds[pawn.GetUniqueLoadID()] = pawn.foodRestriction.CurrentFoodPolicy.id;
         }
 
         /// <summary>
@@ -247,7 +247,7 @@ namespace CaravanFoodPolicies
             var data = Data;
             if (data == null) return;
 
-            data.RetainedCaravanData[pawn.GetUniqueLoadID()] = policy.label;
+            data.RetainedCaravanDataIds[pawn.GetUniqueLoadID()] = policy.id;
         }
 
         /// <summary>
@@ -258,11 +258,18 @@ namespace CaravanFoodPolicies
             var data = Data;
             if (data == null) return;
 
-            data.RetainedHomeData[pawn.GetUniqueLoadID()] = policy.label;
+            data.RetainedHomeDataIds[pawn.GetUniqueLoadID()] = policy.id;
         }
 
-        // Helper to find policy object from string label
-        private static FoodPolicy GetPolicyByLabel(string label)
+        // Helper to find policy object from int id
+        private static FoodPolicy GetPolicyById(int id)
+        {
+            return Current.Game.foodRestrictionDatabase.AllFoodRestrictions
+                .FirstOrFallback(x => x.id == id, null);
+        }
+
+        // Helper to find policy object from string label (Used for Migration Only)
+        public static FoodPolicy GetPolicyByLabel(string label)
         {
             return Current.Game.foodRestrictionDatabase.AllFoodRestrictions
                 .FirstOrFallback(x => x.label == label, null);
@@ -317,21 +324,63 @@ namespace CaravanFoodPolicies
 
     public class CaravanFoodPoliciesData : WorldComponent
     {
-        public Dictionary<string, string> RetainedCaravanData = new Dictionary<string, String>();
-        public Dictionary<string, string> RetainedHomeData = new Dictionary<string, String>();
+        // Changed to store IDs (int) instead of Labels (string)
+        public Dictionary<string, int> RetainedCaravanDataIds = new Dictionary<string, int>();
+        public Dictionary<string, int> RetainedHomeDataIds = new Dictionary<string, int>();
 
-        // Lists for Scribe saving
-        private List<string> CaravanPawnId;
-        private List<string> CaravanFoodPolicyLabel;
-        private List<string> HomePawnId;
-        private List<string> HomeFoodPolicyLabel;
+        // Lists for Scribe saving (Values must be int)
+        private List<string> CaravanPawnIdList;
+        private List<int> CaravanFoodPolicyIdList;
+        private List<string> HomePawnIdList;
+        private List<int> HomeFoodPolicyIdList;
 
         public CaravanFoodPoliciesData(World world) : base(world) { }
 
         public override void ExposeData()
         {
-            Scribe_Collections.Look(ref RetainedCaravanData, "RetainedCaravanData", LookMode.Value, LookMode.Value, ref CaravanPawnId, ref CaravanFoodPolicyLabel);
-            Scribe_Collections.Look(ref RetainedHomeData, "RetainedHomeData", LookMode.Value, LookMode.Value, ref HomePawnId, ref HomeFoodPolicyLabel);
+            Scribe_Collections.Look(ref RetainedCaravanDataIds, "RetainedCaravanDataIds", LookMode.Value, LookMode.Value, ref CaravanPawnIdList, ref CaravanFoodPolicyIdList);
+            Scribe_Collections.Look(ref RetainedHomeDataIds, "RetainedHomeDataIds", LookMode.Value, LookMode.Value, ref HomePawnIdList, ref HomeFoodPolicyIdList);
+
+            // Migration: Check for legacy string data ONLY during loading.
+            if (Scribe.mode == LoadSaveMode.LoadingVars)
+            {
+                MigrateCaravanData();
+            }
+        }
+
+        private void MigrateCaravanData()
+        {
+            // Temporary buffers for legacy values
+            Dictionary<string, string> legacyCaravanData = null;
+            Dictionary<string, string> legacyHomeData = null;
+            List<string> tempKeys = null;
+            List<string> tempValues = null;
+
+            // Attempt to read the OLD labels ("RetainedCaravanData") into string dictionaries
+            Scribe_Collections.Look(ref legacyCaravanData, "RetainedCaravanData", LookMode.Value, LookMode.Value, ref tempKeys, ref tempValues);
+            Scribe_Collections.Look(ref legacyHomeData, "RetainedHomeData", LookMode.Value, LookMode.Value, ref tempKeys, ref tempValues);
+
+            // Migrate Caravan Data
+            if (legacyCaravanData != null)
+            {
+                if (RetainedCaravanDataIds == null) RetainedCaravanDataIds = new Dictionary<string, int>();
+                foreach (var kvp in legacyCaravanData)
+                {
+                    var policy = PolicyUtils.GetPolicyByLabel(kvp.Value);
+                    if (policy != null) RetainedCaravanDataIds[kvp.Key] = policy.id;
+                }
+            }
+
+            // Migrate Home Data
+            if (legacyHomeData != null)
+            {
+                if (RetainedHomeDataIds == null) RetainedHomeDataIds = new Dictionary<string, int>();
+                foreach (var kvp in legacyHomeData)
+                {
+                    var policy = PolicyUtils.GetPolicyByLabel(kvp.Value);
+                    if (policy != null) RetainedHomeDataIds[kvp.Key] = policy.id;
+                }
+            }
         }
     }
 }
