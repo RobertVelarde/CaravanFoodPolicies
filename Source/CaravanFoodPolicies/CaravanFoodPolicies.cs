@@ -324,6 +324,9 @@ namespace CaravanFoodPolicies
 
     public class CaravanFoodPoliciesData : WorldComponent
     {
+        private const int LatestVersion = 1;
+        private int version = LatestVersion;
+
         // Changed to store IDs (int) instead of Labels (string)
         public Dictionary<string, int> RetainedCaravanDataIds = new Dictionary<string, int>();
         public Dictionary<string, int> RetainedHomeDataIds = new Dictionary<string, int>();
@@ -338,17 +341,53 @@ namespace CaravanFoodPolicies
 
         public override void ExposeData()
         {
+            Scribe_Values.Look(ref version, "version", 0);
+
+            // 1. Main Save/Load: Use NEW labels ("...Ids") so we don't accidentally try to parse old string data as ints.
             Scribe_Collections.Look(ref RetainedCaravanDataIds, "RetainedCaravanDataIds", LookMode.Value, LookMode.Value, ref CaravanPawnIdList, ref CaravanFoodPolicyIdList);
             Scribe_Collections.Look(ref RetainedHomeDataIds, "RetainedHomeDataIds", LookMode.Value, LookMode.Value, ref HomePawnIdList, ref HomeFoodPolicyIdList);
 
-            // Migration: Check for legacy string data ONLY during loading.
+            // 2. Run Migrations on Load
             if (Scribe.mode == LoadSaveMode.LoadingVars)
             {
-                MigrateCaravanData();
+                RunMigrations();
             }
         }
 
-        private void MigrateCaravanData()
+        private void RunMigrations()
+        {
+            int startingVersion = version;
+
+            // Define migrations: (TargetVersion, Action)
+            var migrations = new List<(int targetVersion, Action action)>
+            {
+                (1, MigrateV1_PolicyLabelsToIds)
+            };
+
+            foreach (var migration in migrations)
+            {
+                if (version < migration.targetVersion)
+                {
+                    try
+                    {
+                        migration.action();
+                    }
+                    catch (Exception ex)
+                    {
+                        CFPLog.Exception(ex, $"Failed to run migration for version {migration.targetVersion}");
+                    }
+                }
+            }
+
+            // Update version to latest after migrations
+            version = LatestVersion;
+            if (startingVersion < LatestVersion)
+            {
+                CFPLog.Message("Upgraded CaravanFoodPoliciesData from v" + startingVersion + " to v" + LatestVersion);
+            }
+        }
+
+        private void MigrateV1_PolicyLabelsToIds()
         {
             // Temporary buffers for legacy values
             Dictionary<string, string> legacyCaravanData = null;
@@ -426,15 +465,15 @@ namespace RimWorld
                 GUI.color = new Color(0.6f, 1f, 0.6f); // Green tint
             }
 
-                Widgets.Dropdown(
-                    dropdownRect,
-                    pawn,
-                    _ => policy,
-                    Button_GenerateMenu,
-                    policy.label.Truncate(dropdownRect.width),
-                    dragLabel: policy.label,
-                    paintable: true
-                );
+            Widgets.Dropdown(
+                dropdownRect,
+                pawn,
+                _ => policy,
+                Button_GenerateMenu,
+                policy.label.Truncate(dropdownRect.width),
+                dragLabel: policy.label,
+                paintable: true
+            );
 
             GUI.color = Color.white; // Reset
         }
