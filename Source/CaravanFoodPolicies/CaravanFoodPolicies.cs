@@ -21,6 +21,22 @@ namespace CaravanFoodPolicies
 
         // --- Patches ---
 
+        [HarmonyPatch(typeof(Pawn_FoodRestrictionTracker), nameof(Pawn_FoodRestrictionTracker.CurrentFoodPolicy), MethodType.Setter)]
+        static class Pawn_FoodRestrictionTracker_CurrentFoodPolicy_Patch
+        {
+            static void Postfix(Pawn_FoodRestrictionTracker __instance)
+            {
+                Pawn pawn = Traverse.Create(__instance).Field("pawn").GetValue<Pawn>();
+                if (pawn == null) return;
+                if (!pawn.IsCaravanMember()) return;
+
+                Caravan caravan = pawn.GetCaravan();
+                if (caravan == null) return;
+
+                caravan.RecacheInventory();
+            }
+        }
+
         [HarmonyPatch(typeof(Dialog_FormCaravan), "DaysWorthOfFood", MethodType.Getter)]
         static class Dialog_FormCaravan_DaysWorthOfFood_Patch
         {
@@ -28,19 +44,13 @@ namespace CaravanFoodPolicies
             static void Prefix(List<TransferableOneWay> ___transferables, bool ___daysWorthOfFoodDirty, out Dictionary<Pawn, FoodPolicy> __state)
             {
                 __state = null;
+                if (!___daysWorthOfFoodDirty) return;
 
-                // PERFORMANCE OPTIMIZATION:
-                // If the dirty flag is false, the game will just return a cached number.
-                // We should NOT swap policies in this case, or we waste CPU cycles every frame.
-                if (___daysWorthOfFoodDirty)
-                {
-                    __state = PolicyUtils.ApplyCaravanPolicies(___transferables);
-                }
+                __state = PolicyUtils.ApplyCaravanPolicies(___transferables);
             }
 
             static void Finalizer(Dictionary<Pawn, FoodPolicy> __state)
             {
-                // Restore policies (only runs if we actually swapped them in Prefix)
                 PolicyUtils.RestorePolicies(__state);
             }
         }
@@ -67,21 +77,11 @@ namespace CaravanFoodPolicies
             {
                 if (Find.CurrentMap?.ParentFaction == null || !Find.CurrentMap.ParentFaction.IsPlayer) return;
 
-                foreach (var pawn in __result.pawns)
-                {
-                    if (!pawn.RaceProps.Humanlike) continue;
-
-                    var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
-                    if (caravanPolicy == null)
-                    {
-                        CFPLog.Missing(pawn);
-                        continue;
-                    }
-
-                    // Update the pawn's food policy
-                    pawn.foodRestriction.CurrentFoodPolicy = caravanPolicy;
-                    CFPLog.Departure(pawn);
-                }
+                PolicyUtils.ApplyPolicies(
+                    __result.pawns,
+                    PolicyUtils.GetStoredCaravanPolicy,
+                    CFPLog.Departure
+                );
             }
         }
 
@@ -92,21 +92,11 @@ namespace CaravanFoodPolicies
             {
                 if (___mapParent?.Map == null || !___mapParent.Map.IsPlayerHome) return;
 
-                foreach (var pawn in caravan.pawns)
-                {
-                    if (!pawn.RaceProps.Humanlike) continue;
-
-                    var homePolicy = PolicyUtils.GetStoredHomePolicy(pawn);
-                    if (homePolicy == null)
-                    {
-                        CFPLog.Missing(pawn);
-                        continue;
-                    }
-
-                    // Update the pawn's food policy
-                    pawn.foodRestriction.CurrentFoodPolicy = homePolicy;
-                    CFPLog.Arrival(pawn);
-                }
+                PolicyUtils.ApplyPolicies(
+                    caravan.pawns,
+                    PolicyUtils.GetStoredHomePolicy,
+                    CFPLog.Arrival
+                );
             }
         }
     }
@@ -115,22 +105,22 @@ namespace CaravanFoodPolicies
     {
         private const string Prefix = "[CaravanFoodPolicies]";
 
-        public static void Missing(Pawn pawn)
+        public static void Missing(Pawn p)
         {
-            Warning("Could not update food policy for '" + pawn.NameShortColored + "'. Their current food policy is '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.")
-;
+            Warning($"Could not update food policy for '{p.NameShortColored}'. " +
+                    $"Their current food policy is '{p.foodRestriction.CurrentFoodPolicy.label}'.");
         }
 
-        public static void Departure(Pawn pawn)
+        public static void Departure(Pawn p)
         {
-            Message("'" + pawn.NameShortColored + "' departed in a caravan. Their food policy has been updated to '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.")
-;
+            Message($"'{p.NameShortColored}' departed in a caravan. " +
+                    $"Their food policy has been updated to '{p.foodRestriction.CurrentFoodPolicy.label}'.");
         }
 
-        public static void Arrival(Pawn pawn)
+        public static void Arrival(Pawn p)
         {
-            Message("'" + pawn.NameShortColored + "' returned home. Their food policy has been reset back to '" + pawn.foodRestriction.CurrentFoodPolicy.label + "'.")
-;
+            Message($"'{p.NameShortColored}' returned home. " +
+                    $"Their food policy has been reset back to '{p.foodRestriction.CurrentFoodPolicy.label}'.");
         }
 
         public static void Message(string message)
@@ -182,93 +172,53 @@ namespace CaravanFoodPolicies
 
     public static class PolicyUtils
     {
-        // Centralized getter for the WorldComponent
         private static CaravanFoodPoliciesData Data => Find.World.GetComponent<CaravanFoodPoliciesData>();
 
-        /// <summary>
-        /// Gets the stored Caravan policy for a pawn. 
-        /// Returns System Default (Lavish) if no custom policy is saved.
-        /// </summary>
         public static FoodPolicy GetStoredCaravanPolicy(Pawn pawn)
         {
-            var data = Data;
-            if (data == null) return DefaultPolicy;
-
-            // If we have a specific saved label, try to find it
-            if (data.RetainedCaravanDataIds.TryGetValue(pawn.GetUniqueLoadID(), out var id))
-            {
-                return GetPolicyById(id) ?? DefaultPolicy;
-            }
-
-            // Fallback: Pawn has never been touched by this mod, return Default
-            return DefaultPolicy;
+            return TryGetSavedPolicy(Data?.RetainedCaravanDataIds, pawn) ?? DefaultPolicy;
         }
 
-        /// <summary>
-        /// Gets the stored Home policy for a pawn. 
-        /// Initializes to Current policy if not found.
-        /// </summary>
         public static FoodPolicy GetStoredHomePolicy(Pawn pawn)
         {
-            var data = Data;
-            if (data == null) return DefaultPolicy;
+            var policy = TryGetSavedPolicy(Data?.RetainedHomeDataIds, pawn);
+            if (policy != null) return policy;
 
-            if (data.RetainedHomeDataIds.TryGetValue(pawn.GetUniqueLoadID(), out var id))
-            {
-                return GetPolicyById(id) ?? DefaultPolicy;
-            }
-
-            // Initialization: Save current policy as Home policy
+            // Initialization Fallback: Save and return the current policy
             var current = pawn.foodRestriction?.CurrentFoodPolicy ?? DefaultPolicy;
-            data.RetainedHomeDataIds[pawn.GetUniqueLoadID()] = current.id;
+            SetSavedPolicy(Data?.RetainedHomeDataIds, pawn, current);
             return current;
         }
 
-        /// <summary>
-        /// Saves the pawn's *current* active policy as their "Home" policy.
-        /// </summary>
-        public static void SaveHomePolicy(Pawn pawn)
-        {
-            var data = Data;
-            if (data == null || pawn.foodRestriction?.CurrentFoodPolicy == null) return;
-
-            // NEW: If the user has manually set a Home policy via the UI (it exists in the dictionary),
-            // do NOT overwrite it with the current transient policy.
-            if (data.RetainedHomeDataIds.ContainsKey(pawn.GetUniqueLoadID())) return;
-
-            data.RetainedHomeDataIds[pawn.GetUniqueLoadID()] = pawn.foodRestriction.CurrentFoodPolicy.id;
-        }
-
-        /// <summary>
-        /// Updates the saved "Caravan" preference for a pawn.
-        /// </summary>
         public static void SetStoredCaravanPolicy(Pawn pawn, FoodPolicy policy)
         {
-            var data = Data;
-            if (data == null) return;
-
-            data.RetainedCaravanDataIds[pawn.GetUniqueLoadID()] = policy.id;
+            SetSavedPolicy(Data?.RetainedCaravanDataIds, pawn, policy);
         }
 
-        /// <summary>
-        /// Updates the saved "Home" preference for a pawn.
-        /// </summary>
         public static void SetStoredHomePolicy(Pawn pawn, FoodPolicy policy)
         {
-            var data = Data;
-            if (data == null) return;
-
-            data.RetainedHomeDataIds[pawn.GetUniqueLoadID()] = policy.id;
+            SetSavedPolicy(Data?.RetainedHomeDataIds, pawn, policy);
         }
 
-        // Helper to find policy object from int id
+        private static FoodPolicy TryGetSavedPolicy(Dictionary<string, int> source, Pawn pawn)
+        {
+            if (source == null) return null;
+            if (!source.TryGetValue(pawn.GetUniqueLoadID(), out var id)) return null;
+            return GetPolicyById(id);
+        }
+
+        private static void SetSavedPolicy(Dictionary<string, int> target, Pawn pawn, FoodPolicy policy)
+        {
+            if (target == null || policy == null) return;
+            target[pawn.GetUniqueLoadID()] = policy.id;
+        }
+
         private static FoodPolicy GetPolicyById(int id)
         {
             return Current.Game.foodRestrictionDatabase.AllFoodRestrictions
                 .FirstOrFallback(x => x.id == id, null);
         }
 
-        // Helper to find policy object from string label (Used for Migration Only)
         public static FoodPolicy GetPolicyByLabel(string label)
         {
             return Current.Game.foodRestrictionDatabase.AllFoodRestrictions
@@ -277,10 +227,6 @@ namespace CaravanFoodPolicies
 
         private static FoodPolicy DefaultPolicy => Current.Game.foodRestrictionDatabase.DefaultFoodRestriction();
 
-        /// <summary>
-        /// Temporarily applies Caravan policies to all pawns in the transfer list.
-        /// Returns a dictionary containing their original "Home" policies for restoration.
-        /// </summary>
         public static Dictionary<Pawn, FoodPolicy> ApplyCaravanPolicies(List<TransferableOneWay> transferables)
         {
             var state = new Dictionary<Pawn, FoodPolicy>();
@@ -288,15 +234,13 @@ namespace CaravanFoodPolicies
 
             foreach (var t in transferables)
             {
-                // Only affect Humanlike pawns that are actually joining the caravan (Count > 0)
                 if (t.AnyThing is Pawn pawn &&
                     pawn.RaceProps.Humanlike &&
+                    !pawn.IsCaravanMember() &&
                     t.CountToTransfer > 0)
                 {
-                    // Save current Home policy
                     state[pawn] = pawn.foodRestriction.CurrentFoodPolicy;
 
-                    // Apply Caravan policy
                     var caravanPolicy = GetStoredCaravanPolicy(pawn);
                     if (caravanPolicy != null)
                     {
@@ -307,15 +251,32 @@ namespace CaravanFoodPolicies
             return state;
         }
 
-        /// <summary>
-        /// Restores the original policies saved in the state dictionary.
-        /// </summary>
         public static void RestorePolicies(Dictionary<Pawn, FoodPolicy> state)
         {
             if (state == null) return;
             foreach (var kvp in state)
             {
                 kvp.Key.foodRestriction.CurrentFoodPolicy = kvp.Value;
+            }
+        }
+
+        public static void ApplyPolicies(ThingOwner<Pawn> pawns, Func<Pawn, FoodPolicy> policyGetter, Action<Pawn> logAction)
+        {
+            if (pawns == null) return;
+
+            foreach (var pawn in pawns)
+            {
+                if (!pawn.RaceProps.Humanlike) continue;
+
+                var policyToApply = policyGetter(pawn);
+                if (policyToApply == null)
+                {
+                    CFPLog.Missing(pawn);
+                    continue;
+                }
+
+                pawn.foodRestriction.CurrentFoodPolicy = policyToApply;
+                logAction(pawn);
             }
         }
     }
@@ -383,42 +344,58 @@ namespace CaravanFoodPolicies
             version = LatestVersion;
             if (startingVersion < LatestVersion)
             {
-                CFPLog.Message("Upgraded CaravanFoodPoliciesData from v" + startingVersion + " to v" + LatestVersion);
+                CFPLog.Message($"Upgraded CaravanFoodPoliciesData from v{startingVersion} to v{LatestVersion}");
             }
         }
 
         private void MigrateV1_PolicyLabelsToIds()
         {
-            // Temporary buffers for legacy values
-            Dictionary<string, string> legacyCaravanData = null;
-            Dictionary<string, string> legacyHomeData = null;
-            List<string> tempKeys = null;
-            List<string> tempValues = null;
+            // Initialize temporary buffers
+            Dictionary<string, string> legacyCaravanData = new Dictionary<string, string>();
+            Dictionary<string, string> legacyHomeData = new Dictionary<string, string>();
 
-            // Attempt to read the OLD labels ("RetainedCaravanData") into string dictionaries
+            // Initialize working lists for Scribe
+            List<string> tempKeys = new List<string>();
+            List<string> tempValues = new List<string>();
+
+            // Load the OLD string data
+            // Because we are inside 'if (LoadingVars)', this reads the data if it exists.
             Scribe_Collections.Look(ref legacyCaravanData, "RetainedCaravanData", LookMode.Value, LookMode.Value, ref tempKeys, ref tempValues);
             Scribe_Collections.Look(ref legacyHomeData, "RetainedHomeData", LookMode.Value, LookMode.Value, ref tempKeys, ref tempValues);
 
-            // Migrate Caravan Data
-            if (legacyCaravanData != null)
+            // 1. Migrate Caravan Data
+            if (legacyCaravanData != null && legacyCaravanData.Count > 0)
             {
                 if (RetainedCaravanDataIds == null) RetainedCaravanDataIds = new Dictionary<string, int>();
+
                 foreach (var kvp in legacyCaravanData)
                 {
+                    // Convert Label (string) -> Policy (ID)
                     var policy = PolicyUtils.GetPolicyByLabel(kvp.Value);
-                    if (policy != null) RetainedCaravanDataIds[kvp.Key] = policy.id;
+                    if (policy != null)
+                    {
+                        RetainedCaravanDataIds[kvp.Key] = policy.id;
+                    }
                 }
+
+                CFPLog.Message($"Migrated {legacyCaravanData.Count} caravan policies to IDs.");
             }
 
-            // Migrate Home Data
-            if (legacyHomeData != null)
+            // 2. Migrate Home Data
+            if (legacyHomeData != null && legacyHomeData.Count > 0)
             {
                 if (RetainedHomeDataIds == null) RetainedHomeDataIds = new Dictionary<string, int>();
+
                 foreach (var kvp in legacyHomeData)
                 {
                     var policy = PolicyUtils.GetPolicyByLabel(kvp.Value);
-                    if (policy != null) RetainedHomeDataIds[kvp.Key] = policy.id;
+                    if (policy != null)
+                    {
+                        RetainedHomeDataIds[kvp.Key] = policy.id;
+                    }
                 }
+
+                CFPLog.Message($"Migrated {legacyHomeData.Count} home policies to IDs.");
             }
         }
     }
@@ -489,27 +466,25 @@ namespace RimWorld
         protected bool IsHomeMismatch(Pawn pawn)
         {
             var homePolicy = PolicyUtils.GetStoredHomePolicy(pawn);
-            // If homePolicy is null, no custom home policy is set, so no mismatch.
             return homePolicy != null && (pawn.Map?.IsPlayerHome == true) && pawn.foodRestriction.CurrentFoodPolicy != homePolicy;
         }
 
         protected bool IsHomeMatch(Pawn pawn)
         {
             var homePolicy = PolicyUtils.GetStoredHomePolicy(pawn);
-            // If homePolicy is null, no custom home policy is set, so no mismatch.
             return homePolicy != null && (pawn.Map?.IsPlayerHome == true) && pawn.foodRestriction.CurrentFoodPolicy == homePolicy;
         }
 
         protected bool IsCaravanMismatch(Pawn pawn)
         {
             var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
-            return pawn.IsCaravanMember() && pawn.foodRestriction.CurrentFoodPolicy != caravanPolicy;
+            return caravanPolicy != null && pawn.IsCaravanMember() && pawn.foodRestriction.CurrentFoodPolicy != caravanPolicy;
         }
 
         protected bool IsCaravanMatch(Pawn pawn)
         {
             var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
-            return pawn.IsCaravanMember() && pawn.foodRestriction.CurrentFoodPolicy == caravanPolicy;
+            return caravanPolicy != null && pawn.IsCaravanMember() && pawn.foodRestriction.CurrentFoodPolicy == caravanPolicy;
         }
 
         protected virtual IEnumerable<Widgets.DropdownMenuElement<FoodPolicy>> Button_GenerateMenu(Pawn pawn)
@@ -548,7 +523,6 @@ namespace RimWorld
         }
     }
 
-    // 1. Column for editing the "Caravan" Policy (Existing)
     public class PawnColumnWorker_CaravanFoodPolicy : PawnColumnWorker_FoodPolicyBase
     {
         protected override FoodPolicy GetPolicy(Pawn pawn) => PolicyUtils.GetStoredCaravanPolicy(pawn);
@@ -556,16 +530,8 @@ namespace RimWorld
 
         public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
 
-        protected override bool HasMatch(Pawn pawn)
-        {
-            return IsCaravanMatch(pawn);
-        }
-
-        protected override bool HasMismatch(Pawn pawn)
-        {
-            return IsCaravanMismatch(pawn);
-        }
-
+        protected override bool HasMatch(Pawn pawn) => IsCaravanMatch(pawn);
+        protected override bool HasMismatch(Pawn pawn) => IsCaravanMismatch(pawn);
         protected override void ResolveMismatch(Pawn pawn)
         {
             // Set Current to the Caravan policy
@@ -573,25 +539,13 @@ namespace RimWorld
         }
     }
 
-    // 2. Column for editing the "Home" Policy (New)
     public class PawnColumnWorker_HomeFoodPolicy : PawnColumnWorker_FoodPolicyBase
     {
-        // NOTE: Keeping the fallback removal from previous steps implicitly if user applied it, 
-        // but adhering to context provided in prompt which included the fallback logic. 
-        // ResolveMismatch uses GetPolicy which uses GetStoredHomePolicy. 
         protected override FoodPolicy GetPolicy(Pawn pawn) => PolicyUtils.GetStoredHomePolicy(pawn) ?? pawn.foodRestriction.CurrentFoodPolicy;
         protected override void SetPolicy(Pawn pawn, FoodPolicy policy) => PolicyUtils.SetStoredHomePolicy(pawn, policy);
 
-        protected override bool HasMatch(Pawn pawn)
-        {
-            return IsHomeMatch(pawn);
-        }
-
-        protected override bool HasMismatch(Pawn pawn)
-        {
-            return IsHomeMismatch(pawn);
-        }
-
+        protected override bool HasMatch(Pawn pawn) => IsHomeMatch(pawn);
+        protected override bool HasMismatch(Pawn pawn) => IsHomeMismatch(pawn);
         protected override void ResolveMismatch(Pawn pawn)
         {
             // Set Current to the Home policy
@@ -599,12 +553,13 @@ namespace RimWorld
         }
     }
 
-    // 3. Column for "Current" Food Policy (Rename of Vanilla)
     public class PawnColumnWorker_CurrentFoodPolicy : PawnColumnWorker_FoodPolicyBase
     {
         protected override FoodPolicy GetPolicy(Pawn pawn) => pawn.foodRestriction.CurrentFoodPolicy;
-        protected override void SetPolicy(Pawn pawn, FoodPolicy policy) => pawn.foodRestriction.CurrentFoodPolicy = policy;
-
+        protected override void SetPolicy(Pawn pawn, FoodPolicy policy)
+        {
+            pawn.foodRestriction.CurrentFoodPolicy = policy;
+        }
         public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
 
         public override void DoHeader(Rect rect, PawnTable table)
