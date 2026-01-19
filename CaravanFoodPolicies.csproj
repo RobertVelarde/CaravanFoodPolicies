@@ -62,5 +62,65 @@
   <ItemGroup>
     <Folder Include="Assemblies\" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Local.props" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Import Project="$(SolutionDir)Local.props" Condition="Exists('$(SolutionDir)Local.props')" />
+  <PropertyGroup>
+    <PostBuildEvent>@echo off
+
+:: ---------------------------------------------------------
+:: 1. Safety Check: Is RimWorld Running?
+:: ---------------------------------------------------------
+:: Checks for the standard RimWorld process. 
+:: If found, skip copy to avoid file locking errors.
+tasklist /FI "IMAGENAME eq RimWorldWin64.exe" | find /I "RimWorldWin64.exe" &gt;nul
+if %25errorlevel%25==0 (
+    echo [WARNING] RimWorld is currently running. Deployment skipped.
+    exit 0
+)
+
+:: ---------------------------------------------------------
+:: 2. Path Check: Does the user have Local.props configured?
+:: ---------------------------------------------------------
+if "$(RimWorldModDir)" == "" (
+    echo [WARNING] RimWorldModDir is empty. Check your Local.props file.
+    exit 0
+)
+
+if not exist "$(RimWorldModDir)" (
+    echo [WARNING] The path in Local.props does not exist: "$(RimWorldModDir)"
+    exit 0
+)
+
+:: ---------------------------------------------------------
+:: 3. Configuration &amp; Deployment
+:: ---------------------------------------------------------
+set MOD_NAME=$(SolutionName)
+set DEST_DIR="$(RimWorldModDir)\%25MOD_NAME%25"
+
+echo Deploying %25MOD_NAME%25 to %25DEST_DIR%25
+
+:: Robocopy /MIR (Mirror) - Copies new files and DELETES extra files in destination
+:: We check if errorlevel is less than or equal to 1 because Robocopy returns 1 on success.
+:: (0 = No changes, 1 = Successful copy, &gt;1 = Error)
+
+robocopy "$(ProjectDir)About" %25DEST_DIR%25\About /MIR
+if %25errorlevel%25 leq 1 set errorlevel=0
+
+robocopy "$(ProjectDir)Assemblies" %25DEST_DIR%25\Assemblies /MIR
+if %25errorlevel%25 leq 1 set errorlevel=0
+
+robocopy "$(ProjectDir)Defs" %25DEST_DIR%25\Defs /MIR
+if %25errorlevel%25 leq 1 set errorlevel=0
+
+robocopy "$(ProjectDir)Patches" %25DEST_DIR%25\Patches /MIR
+if %25errorlevel%25 leq 1 set errorlevel=0
+
+:: Copy License separately (Standard Copy)
+copy /Y "$(ProjectDir)LICENSE" %25DEST_DIR%25\LICENSE
+
+echo Deployment Complete</PostBuildEvent>
+  </PropertyGroup>
 </Project>

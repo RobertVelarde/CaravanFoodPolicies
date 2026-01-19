@@ -288,11 +288,9 @@ namespace CaravanFoodPolicies
         private const int LatestVersion = 1;
         private int version = LatestVersion;
 
-        // Changed to store IDs (int) instead of Labels (string)
         public Dictionary<string, int> RetainedCaravanDataIds = new Dictionary<string, int>();
         public Dictionary<string, int> RetainedHomeDataIds = new Dictionary<string, int>();
 
-        // Lists for Scribe saving (Values must be int)
         private List<string> CaravanPawnIdList;
         private List<int> CaravanFoodPolicyIdList;
         private List<string> HomePawnIdList;
@@ -304,11 +302,10 @@ namespace CaravanFoodPolicies
         {
             Scribe_Values.Look(ref version, "version", 0);
 
-            // 1. Main Save/Load: Use NEW labels ("...Ids") so we don't accidentally try to parse old string data as ints.
             Scribe_Collections.Look(ref RetainedCaravanDataIds, "RetainedCaravanDataIds", LookMode.Value, LookMode.Value, ref CaravanPawnIdList, ref CaravanFoodPolicyIdList);
             Scribe_Collections.Look(ref RetainedHomeDataIds, "RetainedHomeDataIds", LookMode.Value, LookMode.Value, ref HomePawnIdList, ref HomeFoodPolicyIdList);
 
-            // 2. Run Migrations on Load
+            // Run Migrations on Load
             if (Scribe.mode == LoadSaveMode.LoadingVars)
             {
                 RunMigrations();
@@ -317,9 +314,6 @@ namespace CaravanFoodPolicies
 
         private void RunMigrations()
         {
-            int startingVersion = version;
-
-            // Define migrations: (TargetVersion, Action)
             var migrations = new List<(int targetVersion, Action action)>
             {
                 (1, MigrateV1_PolicyLabelsToIds)
@@ -327,24 +321,34 @@ namespace CaravanFoodPolicies
 
             foreach (var migration in migrations)
             {
-                if (version < migration.targetVersion)
+                if (!RunMigration(version, migration.targetVersion, migration.action))
                 {
-                    try
-                    {
-                        migration.action();
-                    }
-                    catch (Exception ex)
-                    {
-                        CFPLog.Exception(ex, $"Failed to run migration for version {migration.targetVersion}");
-                    }
+                    version = migration.targetVersion;
+                    return;
                 }
             }
 
             // Update version to latest after migrations
-            version = LatestVersion;
-            if (startingVersion < LatestVersion)
+            if (version < LatestVersion)
             {
-                CFPLog.Message($"Upgraded CaravanFoodPoliciesData from v{startingVersion} to v{LatestVersion}");
+                CFPLog.Message($"Upgraded CaravanFoodPoliciesData from v{version} to v{LatestVersion}");
+                version = LatestVersion;
+            }
+        }
+
+        private bool RunMigration(int version, int targetVersion, Action action)
+        {
+            if (version >= LatestVersion) return true;
+
+            try
+            {
+                action();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                CFPLog.Exception(ex, $"Failed to run migration for v{targetVersion}");
+                return false;
             }
         }
 
@@ -370,12 +374,9 @@ namespace CaravanFoodPolicies
 
                 foreach (var kvp in legacyCaravanData)
                 {
-                    // Convert Label (string) -> Policy (ID)
                     var policy = PolicyUtils.GetPolicyByLabel(kvp.Value);
-                    if (policy != null)
-                    {
-                        RetainedCaravanDataIds[kvp.Key] = policy.id;
-                    }
+                    if (policy == null) continue;
+                    RetainedCaravanDataIds[kvp.Key] = policy.id;
                 }
 
                 CFPLog.Message($"Migrated {legacyCaravanData.Count} caravan policies to IDs.");
@@ -389,10 +390,8 @@ namespace CaravanFoodPolicies
                 foreach (var kvp in legacyHomeData)
                 {
                     var policy = PolicyUtils.GetPolicyByLabel(kvp.Value);
-                    if (policy != null)
-                    {
-                        RetainedHomeDataIds[kvp.Key] = policy.id;
-                    }
+                    if (policy == null) continue;
+                    RetainedHomeDataIds[kvp.Key] = policy.id;
                 }
 
                 CFPLog.Message($"Migrated {legacyHomeData.Count} home policies to IDs.");
@@ -403,13 +402,14 @@ namespace CaravanFoodPolicies
 
 namespace RimWorld
 {
-    using CaravanFoodPolicies; // Import our utils
+    using CaravanFoodPolicies;
 
-    // Base class for shared logic
     public abstract class PawnColumnWorker_FoodPolicyBase : PawnColumnWorker
     {
         protected const int TopAreaHeight = 65;
         protected const int ManageFoodPoliciesButtonHeight = 32;
+
+        public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
 
         public override void DoHeader(Rect rect, PawnTable table)
         {
@@ -424,12 +424,9 @@ namespace RimWorld
             var policy = GetPolicy(pawn);
             Rect dropdownRect = new Rect(rect.x, rect.y + 2f, rect.width, rect.height - 4f);
 
-            // Highlight if there is a mismatch
             if (HasMismatch(pawn))
             {
-                GUI.color = new Color(1f, 0.6f, 0.6f); // Red tint
-
-                // Handle right-click to fix mismatch
+                GUI.color = new Color(1f, 0.6f, 0.6f);
                 if (Mouse.IsOver(rect) && Event.current.type == EventType.MouseDown && Event.current.button == 1)
                 {
                     ResolveMismatch(pawn);
@@ -439,7 +436,7 @@ namespace RimWorld
             }
             else if (HasMatch(pawn))
             {
-                GUI.color = new Color(0.6f, 1f, 0.6f); // Green tint
+                GUI.color = new Color(0.6f, 1f, 0.6f);
             }
 
             Widgets.Dropdown(
@@ -452,17 +449,19 @@ namespace RimWorld
                 paintable: true
             );
 
-            GUI.color = Color.white; // Reset
+            GUI.color = Color.white;
         }
 
         protected abstract FoodPolicy GetPolicy(Pawn pawn);
         protected abstract void SetPolicy(Pawn pawn, FoodPolicy policy);
         protected virtual bool HasMatch(Pawn pawn) => false;
         protected virtual bool HasMismatch(Pawn pawn) => false;
-        protected abstract void ResolveMismatch(Pawn pawn);
 
+        protected virtual void ResolveMismatch(Pawn pawn)
+        {
+            pawn.foodRestriction.CurrentFoodPolicy = GetPolicy(pawn);
+        }
 
-        // Helpers for mismatch logic
         protected bool IsHomeMismatch(Pawn pawn)
         {
             var homePolicy = PolicyUtils.GetStoredHomePolicy(pawn);
@@ -527,45 +526,27 @@ namespace RimWorld
     {
         protected override FoodPolicy GetPolicy(Pawn pawn) => PolicyUtils.GetStoredCaravanPolicy(pawn);
         protected override void SetPolicy(Pawn pawn, FoodPolicy policy) => PolicyUtils.SetStoredCaravanPolicy(pawn, policy);
-
-        public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
-
         protected override bool HasMatch(Pawn pawn) => IsCaravanMatch(pawn);
         protected override bool HasMismatch(Pawn pawn) => IsCaravanMismatch(pawn);
-        protected override void ResolveMismatch(Pawn pawn)
-        {
-            // Set Current to the Caravan policy
-            pawn.foodRestriction.CurrentFoodPolicy = GetPolicy(pawn);
-        }
     }
 
     public class PawnColumnWorker_HomeFoodPolicy : PawnColumnWorker_FoodPolicyBase
     {
         protected override FoodPolicy GetPolicy(Pawn pawn) => PolicyUtils.GetStoredHomePolicy(pawn) ?? pawn.foodRestriction.CurrentFoodPolicy;
         protected override void SetPolicy(Pawn pawn, FoodPolicy policy) => PolicyUtils.SetStoredHomePolicy(pawn, policy);
-
         protected override bool HasMatch(Pawn pawn) => IsHomeMatch(pawn);
         protected override bool HasMismatch(Pawn pawn) => IsHomeMismatch(pawn);
-        protected override void ResolveMismatch(Pawn pawn)
-        {
-            // Set Current to the Home policy
-            pawn.foodRestriction.CurrentFoodPolicy = GetPolicy(pawn);
-        }
     }
 
     public class PawnColumnWorker_CurrentFoodPolicy : PawnColumnWorker_FoodPolicyBase
     {
         protected override FoodPolicy GetPolicy(Pawn pawn) => pawn.foodRestriction.CurrentFoodPolicy;
-        protected override void SetPolicy(Pawn pawn, FoodPolicy policy)
-        {
-            pawn.foodRestriction.CurrentFoodPolicy = policy;
-        }
-        public override int GetMinHeaderHeight(PawnTable table) => Mathf.Max(base.GetMinHeaderHeight(table), TopAreaHeight);
+        protected override void SetPolicy(Pawn pawn, FoodPolicy policy) => pawn.foodRestriction.CurrentFoodPolicy = policy;
 
         public override void DoHeader(Rect rect, PawnTable table)
         {
             base.DoHeader(rect, table);
-            
+
             var buttonRect = new Rect(rect.x, rect.y + (rect.height - TopAreaHeight), rect.width * 3f, ManageFoodPoliciesButtonHeight);
             if (Widgets.ButtonText(buttonRect, "Manage food policies"))
             {
@@ -575,33 +556,19 @@ namespace RimWorld
 
         protected override bool HasMatch(Pawn pawn)
         {
-            if (pawn.Map != null && pawn.Map.IsPlayerHome)
-            {
-                return IsHomeMatch(pawn);
-            }
-            if (pawn.IsCaravanMember())
-            {
-                return IsCaravanMatch(pawn);
-            }
+            if (pawn.Map != null && pawn.Map.IsPlayerHome) return IsHomeMatch(pawn);
+            if (pawn.IsCaravanMember()) return IsCaravanMatch(pawn);
             return false;
         }
 
         protected override bool HasMismatch(Pawn pawn)
         {
-            if (pawn.Map != null && pawn.Map.IsPlayerHome)
-            {
-                return IsHomeMismatch(pawn);
-            }
-            if (pawn.IsCaravanMember())
-            {
-                return IsCaravanMismatch(pawn);
-            }
+            if (pawn.Map != null && pawn.Map.IsPlayerHome) return IsHomeMismatch(pawn);
+            if (pawn.IsCaravanMember()) return IsCaravanMismatch(pawn);
             return false;
         }
-
         protected override void ResolveMismatch(Pawn pawn)
         {
-            // Push Current policy to the mismatched stored policy
             if (IsHomeMismatch(pawn))
             {
                 PolicyUtils.SetStoredHomePolicy(pawn, pawn.foodRestriction.CurrentFoodPolicy);
