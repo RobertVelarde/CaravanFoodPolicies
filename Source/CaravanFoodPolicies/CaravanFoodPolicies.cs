@@ -108,20 +108,17 @@ namespace CaravanFoodPolicies
 
         public static void Missing(Pawn p)
         {
-            Warning($"Could not update food policy for '{p.NameShortColored}'. " +
-                    $"Their current food policy is '{p.foodRestriction.CurrentFoodPolicy.label}'.");
+            Warning("CFP_UpdateFoodPolicyFailed".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy.label));
         }
 
         public static void Departure(Pawn p)
         {
-            Message($"'{p.NameShortColored}' departed in a caravan. " +
-                    $"Their food policy has been updated to '{p.foodRestriction.CurrentFoodPolicy.label}'.");
+            Message("CFP_PawnDepartedMessage".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy.label));
         }
 
         public static void Arrival(Pawn p)
         {
-            Message($"'{p.NameShortColored}' returned home. " +
-                    $"Their food policy has been reset back to '{p.foodRestriction.CurrentFoodPolicy.label}'.");
+            Message("CFP_PawnReturnedMessage".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy.label));
         }
 
         public static void Message(string message)
@@ -426,21 +423,21 @@ namespace CaravanFoodPolicies
             Settings = GetSettings<CaravanFoodPoliciesSettings>();
         }
 
-        public override string SettingsCategory() => "Caravan Food Policies";
+        public override string SettingsCategory() => "CFP_SettingsCategory".Translate();
 
         public override void DoSettingsWindowContents(Rect inRect)
         {
             Listing_Standard ls = new Listing_Standard();
             ls.Begin(inRect);
 
-            ls.CheckboxLabeled("Enable Food Policy Highlighting", ref Settings.EnableHighlighting, "Enables colored food poilicy highlights in the Assign tab.");
+            ls.CheckboxLabeled("CFP_EnableHighlighting".Translate(), ref Settings.EnableHighlighting, "CFP_EnableHighlightingDesc".Translate());
             ls.Gap();
 
             if (Settings.EnableHighlighting)
             {
-                DrawColorSelector(ls, "    Match Color", Settings.MatchColor, DefaultMatchColor, (c) => Settings.MatchColor = c);
+                DrawColorSelector(ls, "    " + "CFP_Match".Translate() + " " + "Color".Translate(), Settings.MatchColor, DefaultMatchColor, (c) => Settings.MatchColor = c);
                 ls.Gap();
-                DrawColorSelector(ls, "    Mismatch Color", Settings.MismatchColor, DefaultMismatchColor, (c) => Settings.MismatchColor = c);
+                DrawColorSelector(ls, "    " + "CFP_Mismatch".Translate() + " " + "Color".Translate(), Settings.MismatchColor, DefaultMismatchColor, (c) => Settings.MismatchColor = c);
             }
 
             ls.End();
@@ -461,7 +458,7 @@ namespace CaravanFoodPolicies
             Widgets.DrawBoxSolid(colorRect, currentColor);
             Widgets.DrawBox(colorRect);
 
-            TooltipHandler.TipRegion(colorRect, "Click to change color");
+            TooltipHandler.TipRegion(colorRect, "ClickToEdit".Translate());
 
             if (Widgets.ButtonInvisible(colorRect))
             {
@@ -473,7 +470,7 @@ namespace CaravanFoodPolicies
 
             if (currentColor != defaultColor)
             {
-                if (Widgets.ButtonText(resetRect, "Reset"))
+                if (Widgets.ButtonText(resetRect, "Reset".Translate()))
                 {
                     onColorChanged(defaultColor);
                     SoundDefOf.Click.PlayOneShotOnCamera();
@@ -585,7 +582,7 @@ namespace RimWorld
 
             yield return new Widgets.DropdownMenuElement<FoodPolicy>()
             {
-                option = new FloatMenuOption("Edit...", () =>
+                option = new FloatMenuOption("AssignTabEdit".Translate() +  "...", () =>
                 {
                     Find.WindowStack.Add(new Dialog_ManageFoodPolicies(null));
                 }),
@@ -634,7 +631,7 @@ namespace RimWorld
             base.DoHeader(rect, table);
 
             var buttonRect = new Rect(rect.x, rect.y + (rect.height - TopAreaHeight), rect.width * 3f, ManageFoodPoliciesButtonHeight);
-            if (Widgets.ButtonText(buttonRect, "Manage food policies"))
+            if (Widgets.ButtonText(buttonRect, "ManageFoodPolicies".Translate()))
             {
                 Find.WindowStack.Add(new Dialog_ManageFoodPolicies(null));
             }

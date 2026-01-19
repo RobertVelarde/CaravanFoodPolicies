@@ -25,5 +25,7 @@ Features:
  - Pawns will automatically have their food policy set to their home food policy immediately after arriving home.
  - When forming a caravan and &lt;i&gt;automatically select travel supplies&lt;/i&gt; is checked, food will be selected based on the caravan food policies of the pawns in the caravan.
  - When forming a caravan, the &lt;i&gt;days of food&lt;/i&gt; calculation accounts for the caravan food policies of the pawns in the caravan.
+ - Supports localization/translation.
+ - Settings to enable/disable highlights or change colors.
 	</description>
 </ModMetaData>

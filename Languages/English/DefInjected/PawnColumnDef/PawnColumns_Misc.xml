@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+
+  <!-- CurrentFoodPolicy -->
+  <CurrentFoodPolicy.label>current food policy</CurrentFoodPolicy.label>
+  <CurrentFoodPolicy.headerTip>The food policy currently assigned to this pawn.</CurrentFoodPolicy.headerTip>
+
+  <!-- HomeFoodPolicy -->
+  <HomeFoodPolicy.label>home food policy</HomeFoodPolicy.label>
+  <HomeFoodPolicy.headerTip>The food policy this pawn will revert to when arriving at a player home map.</HomeFoodPolicy.headerTip>
+
+  <!-- CaravanFoodPolicy -->
+  <CaravanFoodPolicy.label>caravan food policy</CaravanFoodPolicy.label>
+  <CaravanFoodPolicy.headerTip>The food policy this pawn will automatically switch to when forming a caravan.</CaravanFoodPolicy.headerTip>
+
+</LanguageData>

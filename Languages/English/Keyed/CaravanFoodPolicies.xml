@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<LanguageData>
+  <!-- {0} is the pawn's name, {1} is the food policy label -->
+  <CFP_UpdateFoodPolicyFailed>Could not update food policy for '{0}'. Their current food policy is '{1}'.</CFP_UpdateFoodPolicyFailed>
+  <CFP_PawnDepartedMessage>'{0}' departed in a caravan. Their food policy has been updated to '{1}'.</CFP_PawnDepartedMessage>
+  <CFP_PawnReturnedMessage>'{0}' returned home. Their food policy has been reset back to '{1}'.</CFP_PawnReturnedMessage>
+
+  <!-- UI & Settings -->
+  <CFP_SettingsCategory>Caravan Food Policies</CFP_SettingsCategory>
+  <CFP_EnableHighlighting>Enable Food Policy Highlighting</CFP_EnableHighlighting>
+  <CFP_EnableHighlightingDesc>Enables colored food policy highlights in the Assign tab.</CFP_EnableHighlightingDesc>
+  <CFP_Match>Match</CFP_Match>
+  <CFP_Mismatch>Mismatch</CFP_Mismatch>
+</LanguageData>

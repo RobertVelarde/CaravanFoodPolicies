@@ -53,6 +53,8 @@
     <Content Include="About\Preview.png" />
     <Content Include="About\PublishedFileId.txt" />
     <Content Include="Defs\Misc\PawnColumnDefs\PawnColumns_Misc.xml" />
+    <Content Include="Languages\English\DefInjected\PawnColumnDef\PawnColumns_Misc.xml" />
+    <Content Include="Languages\English\Keyed\CaravanFoodPolicies.xml" />
     <Content Include="Patches\PawnTables.xml" />
   </ItemGroup>
   <ItemGroup>
@@ -120,6 +122,9 @@ robocopy "$(ProjectDir)Defs" %25DEST_DIR%25\Defs /MIR
 if %25errorlevel%25 leq 1 set errorlevel=0
 
 robocopy "$(ProjectDir)Patches" %25DEST_DIR%25\Patches /MIR
+if %25errorlevel%25 leq 1 set errorlevel=0
+
+robocopy "$(ProjectDir)Languages" %25DEST_DIR%25\Languages /MIR
 if %25errorlevel%25 leq 1 set errorlevel=0
 
 :: Copy License separately (Standard Copy)
