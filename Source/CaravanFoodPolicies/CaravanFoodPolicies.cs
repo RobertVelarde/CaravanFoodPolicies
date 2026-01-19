@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Verse;
 using Verse.Sound;
+using ColourPicker;
 
 namespace CaravanFoodPolicies
 {
@@ -398,6 +399,88 @@ namespace CaravanFoodPolicies
             }
         }
     }
+
+    public class CaravanFoodPoliciesSettings : ModSettings
+    {
+        public bool EnableHighlighting = true;
+        public Color MatchColor = new Color(0.6f, 1f, 0.6f);
+        public Color MismatchColor = new Color(1f, 0.6f, 0.6f);
+
+        public override void ExposeData()
+        {
+            Scribe_Values.Look(ref EnableHighlighting, "EnableHighlighting", true);
+            Scribe_Values.Look(ref MatchColor, "MatchColor", new Color(0.6f, 1f, 0.6f));
+            Scribe_Values.Look(ref MismatchColor, "MismatchColor", new Color(1f, 0.6f, 0.6f));
+        }
+    }
+
+    public class CaravanFoodPoliciesMod : Mod
+    {
+        public static CaravanFoodPoliciesSettings Settings;
+
+        private readonly Color DefaultMatchColor = new Color(0.6f, 1f, 0.6f);
+        private readonly Color DefaultMismatchColor = new Color(1f, 0.6f, 0.6f);
+
+        public CaravanFoodPoliciesMod(ModContentPack content) : base(content)
+        {
+            Settings = GetSettings<CaravanFoodPoliciesSettings>();
+        }
+
+        public override string SettingsCategory() => "Caravan Food Policies";
+
+        public override void DoSettingsWindowContents(Rect inRect)
+        {
+            Listing_Standard ls = new Listing_Standard();
+            ls.Begin(inRect);
+
+            ls.CheckboxLabeled("Enable Food Policy Highlighting", ref Settings.EnableHighlighting, "Enables colored food poilicy highlights in the Assign tab.");
+            ls.Gap();
+
+            if (Settings.EnableHighlighting)
+            {
+                DrawColorSelector(ls, "    Match Color", Settings.MatchColor, DefaultMatchColor, (c) => Settings.MatchColor = c);
+                ls.Gap();
+                DrawColorSelector(ls, "    Mismatch Color", Settings.MismatchColor, DefaultMismatchColor, (c) => Settings.MismatchColor = c);
+            }
+
+            ls.End();
+            base.DoSettingsWindowContents(inRect);
+        }
+
+        private void DrawColorSelector(Listing_Standard ls, string label, Color currentColor, Color defaultColor, Action<Color> onColorChanged)
+        {
+            Rect rect = ls.GetRect(26f);
+            Rect labelRect = rect.LeftPart(0.60f);
+            Rect controlsRect = rect.RightPart(0.40f);
+            
+            Rect resetRect = controlsRect.LeftPart(0.48f); // 48% to leave a tiny gap
+            Rect colorRect = controlsRect.RightPart(0.48f);
+
+
+            Widgets.Label(labelRect, label);
+            Widgets.DrawBoxSolid(colorRect, currentColor);
+            Widgets.DrawBox(colorRect);
+
+            TooltipHandler.TipRegion(colorRect, "Click to change color");
+
+            if (Widgets.ButtonInvisible(colorRect))
+            {
+                Find.WindowStack.Add(new Dialog_ColourPicker(currentColor, (newColor) =>
+                {
+                    onColorChanged(newColor);
+                }));
+            }
+
+            if (currentColor != defaultColor)
+            {
+                if (Widgets.ButtonText(resetRect, "Reset"))
+                {
+                    onColorChanged(defaultColor);
+                    SoundDefOf.Click.PlayOneShotOnCamera();
+                }
+            }
+        }
+    }
 }
 
 namespace RimWorld
@@ -424,19 +507,22 @@ namespace RimWorld
             var policy = GetPolicy(pawn);
             Rect dropdownRect = new Rect(rect.x, rect.y + 2f, rect.width, rect.height - 4f);
 
-            if (HasMismatch(pawn))
+            if (CaravanFoodPoliciesMod.Settings.EnableHighlighting)
             {
-                GUI.color = new Color(1f, 0.6f, 0.6f);
-                if (Mouse.IsOver(rect) && Event.current.type == EventType.MouseDown && Event.current.button == 1)
+                if (HasMismatch(pawn))
                 {
-                    ResolveMismatch(pawn);
-                    SoundDefOf.Click.PlayOneShotOnCamera();
-                    Event.current.Use();
+                    GUI.color = CaravanFoodPoliciesMod.Settings.MismatchColor;
+                    if (Mouse.IsOver(rect) && Event.current.type == EventType.MouseDown && Event.current.button == 1)
+                    {
+                        ResolveMismatch(pawn);
+                        SoundDefOf.Click.PlayOneShotOnCamera();
+                        Event.current.Use();
+                    }
                 }
-            }
-            else if (HasMatch(pawn))
-            {
-                GUI.color = new Color(0.6f, 1f, 0.6f);
+                else if (HasMatch(pawn))
+                {
+                    GUI.color = CaravanFoodPoliciesMod.Settings.MatchColor;
+                }
             }
 
             Widgets.Dropdown(
