@@ -556,17 +556,29 @@ namespace RimWorld
             var homePolicy = PolicyUtils.GetStoredHomePolicy(pawn);
             return homePolicy != null && (pawn.Map?.IsPlayerHome == true) && pawn.foodRestriction.CurrentFoodPolicy == homePolicy;
         }
+        protected bool IsAwayFromBase(Pawn pawn)
+        {
+            if (pawn.IsCaravanMember()) return true;
+            if (pawn.Map != null && !pawn.Map.IsPlayerHome) return true;
+            return false;
+        }
 
         protected bool IsCaravanMismatch(Pawn pawn)
         {
             var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
-            return caravanPolicy != null && pawn.IsCaravanMember() && pawn.foodRestriction.CurrentFoodPolicy != caravanPolicy;
+            // Use the new helper here
+            return caravanPolicy != null
+                   && IsAwayFromBase(pawn)
+                   && pawn.foodRestriction.CurrentFoodPolicy != caravanPolicy;
         }
 
         protected bool IsCaravanMatch(Pawn pawn)
         {
             var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
-            return caravanPolicy != null && pawn.IsCaravanMember() && pawn.foodRestriction.CurrentFoodPolicy == caravanPolicy;
+            // And here
+            return caravanPolicy != null
+                   && IsAwayFromBase(pawn)
+                   && pawn.foodRestriction.CurrentFoodPolicy == caravanPolicy;
         }
 
         protected virtual IEnumerable<Widgets.DropdownMenuElement<FoodPolicy>> Button_GenerateMenu(Pawn pawn)
@@ -639,16 +651,21 @@ namespace RimWorld
 
         protected override bool HasMatch(Pawn pawn)
         {
-            if (pawn.Map != null && pawn.Map.IsPlayerHome) return IsHomeMatch(pawn);
-            if (pawn.IsCaravanMember()) return IsCaravanMatch(pawn);
-            return false;
-        }
+            if (pawn.Map != null && pawn.Map.IsPlayerHome)
+            {
+                return IsHomeMatch(pawn);
+            }
 
+            return IsCaravanMatch(pawn);
+        }
         protected override bool HasMismatch(Pawn pawn)
         {
-            if (pawn.Map != null && pawn.Map.IsPlayerHome) return IsHomeMismatch(pawn);
-            if (pawn.IsCaravanMember()) return IsCaravanMismatch(pawn);
-            return false;
+            if (pawn.Map != null && pawn.Map.IsPlayerHome)
+            {
+                return IsHomeMismatch(pawn);
+            }
+
+            return IsCaravanMismatch(pawn);
         }
         protected override void ResolveMismatch(Pawn pawn)
         {
