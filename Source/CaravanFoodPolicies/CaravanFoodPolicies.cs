@@ -265,6 +265,7 @@ namespace CaravanFoodPolicies
             foreach (var pawn in pawns)
             {
                 if (!pawn.RaceProps.Humanlike) continue;
+                if (pawn.foodRestriction.CurrentFoodPolicy == null) continue;
 
                 var policyToApply = policyGetter(pawn);
                 if (policyToApply == null)
