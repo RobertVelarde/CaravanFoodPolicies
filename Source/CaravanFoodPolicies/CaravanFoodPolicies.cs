@@ -237,6 +237,11 @@ namespace CaravanFoodPolicies
                     !pawn.IsCaravanMember() &&
                     t.CountToTransfer > 0)
                 {
+                    if (pawn.foodRestriction == null) continue;
+                    // Only apply policies to our own pawns or our prisoners. 
+                    // Taking an enemy prisoner (ambush) should not trigger this until they are fully recruited/claimed.
+                    if (pawn.Faction != Faction.OfPlayer && !pawn.IsPrisonerOfColony) continue;
+
                     state[pawn] = pawn.foodRestriction.CurrentFoodPolicy;
 
                     var caravanPolicy = GetStoredCaravanPolicy(pawn);
@@ -254,7 +259,10 @@ namespace CaravanFoodPolicies
             if (state == null) return;
             foreach (var kvp in state)
             {
-                kvp.Key.foodRestriction.CurrentFoodPolicy = kvp.Value;
+                if (kvp.Key.foodRestriction != null)
+                {
+                    kvp.Key.foodRestriction.CurrentFoodPolicy = kvp.Value;
+                }
             }
         }
 
@@ -265,12 +273,16 @@ namespace CaravanFoodPolicies
             foreach (var pawn in pawns)
             {
                 if (!pawn.RaceProps.Humanlike) continue;
-                if (pawn.foodRestriction.CurrentFoodPolicy == null) continue;
+                if (pawn.foodRestriction == null) continue;
 
                 var policyToApply = policyGetter(pawn);
                 if (policyToApply == null)
                 {
-                    CFPLog.Missing(pawn);
+                    // Ensure we don't crash logging if CurrentFoodPolicy is somehow null
+                    if (pawn.foodRestriction.CurrentFoodPolicy != null)
+                    {
+                        CFPLog.Missing(pawn);
+                    }
                     continue;
                 }
 
