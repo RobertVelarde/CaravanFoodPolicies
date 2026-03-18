@@ -108,17 +108,17 @@ namespace CaravanFoodPolicies
 
         public static void Missing(Pawn p)
         {
-            Warning("CFP_UpdateFoodPolicyFailed".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy.label));
+            Warning("CFP_UpdateFoodPolicyFailed".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy?.label ?? "None"));
         }
 
         public static void Departure(Pawn p)
         {
-            Message("CFP_PawnDepartedMessage".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy.label));
+            Message("CFP_PawnDepartedMessage".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy?.label ?? "None"));
         }
 
         public static void Arrival(Pawn p)
         {
-            Message("CFP_PawnReturnedMessage".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy.label));
+            Message("CFP_PawnReturnedMessage".Translate(p.NameShortColored, p.foodRestriction.CurrentFoodPolicy?.label ?? "None"));
         }
 
         public static void Message(string message)
@@ -242,7 +242,8 @@ namespace CaravanFoodPolicies
                     // Taking an enemy prisoner (ambush) should not trigger this until they are fully recruited/claimed.
                     if (pawn.Faction != Faction.OfPlayer && !pawn.IsPrisonerOfColony) continue;
 
-                    state[pawn] = pawn.foodRestriction.CurrentFoodPolicy;
+                    // Save current policy. If null (e.g. fresh prisoner), treat as Default to ensure we don't save/restore null.
+                    state[pawn] = pawn.foodRestriction.CurrentFoodPolicy ?? DefaultPolicy;
 
                     var caravanPolicy = GetStoredCaravanPolicy(pawn);
                     if (caravanPolicy != null)
@@ -259,7 +260,8 @@ namespace CaravanFoodPolicies
             if (state == null) return;
             foreach (var kvp in state)
             {
-                if (kvp.Key.foodRestriction != null)
+                // Ensure we don't restore a null policy
+                if (kvp.Key.foodRestriction != null && kvp.Value != null)
                 {
                     kvp.Key.foodRestriction.CurrentFoodPolicy = kvp.Value;
                 }
@@ -515,6 +517,8 @@ namespace RimWorld
             if (pawn.foodRestriction == null) return;
 
             var policy = GetPolicy(pawn);
+            if (policy == null) return;
+
             Rect dropdownRect = new Rect(rect.x, rect.y + 2f, rect.width, rect.height - 4f);
 
             if (CaravanFoodPoliciesMod.Settings.EnableHighlighting)
@@ -579,7 +583,6 @@ namespace RimWorld
         protected bool IsCaravanMismatch(Pawn pawn)
         {
             var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
-            // Use the new helper here
             return caravanPolicy != null
                    && IsAwayFromBase(pawn)
                    && pawn.foodRestriction.CurrentFoodPolicy != caravanPolicy;
@@ -588,7 +591,6 @@ namespace RimWorld
         protected bool IsCaravanMatch(Pawn pawn)
         {
             var caravanPolicy = PolicyUtils.GetStoredCaravanPolicy(pawn);
-            // And here
             return caravanPolicy != null
                    && IsAwayFromBase(pawn)
                    && pawn.foodRestriction.CurrentFoodPolicy == caravanPolicy;
@@ -626,7 +628,8 @@ namespace RimWorld
         protected virtual int GetValueToCompare(Pawn pawn)
         {
             if (pawn.foodRestriction?.CurrentFoodPolicy == null) return int.MinValue;
-            return GetPolicy(pawn).id;
+            var policy = GetPolicy(pawn);
+            return policy == null ? int.MinValue : policy.id;
         }
     }
 
